@@ -179,6 +179,19 @@ impl DebugPanel {
                 cx,
             )
         });
+        let worktree = worktree_id.or_else(|| {
+            active_buffer
+                .as_ref()
+                .and_then(|buffer| buffer.read(cx).file())
+                .map(|f| f.worktree_id(cx))
+        });
+        let Some(worktree) = worktree
+            .and_then(|id| self.project.read(cx).worktree_for_id(id, cx))
+            .or_else(|| self.project.read(cx).visible_worktrees(cx).next())
+        else {
+            log::debug!("Could not find a worktree to spawn the debug session in");
+            return;
+        };
         self.debug_scenario_scheduled_last = true;
         if let Some(inventory) = self
             .project
@@ -213,7 +226,7 @@ impl DebugPanel {
                     .await?;
                 dap_store
                     .update(cx, |dap_store, cx| {
-                        dap_store.boot_session(session.clone(), definition, cx)
+                        dap_store.boot_session(session.clone(), definition, worktree, cx)
                     })?
                     .await
             }
@@ -542,6 +555,8 @@ impl DebugPanel {
                                             project::debugger::session::ThreadStatus::Exited,
                                         );
                                     let capabilities = running_state.read(cx).capabilities(cx);
+                                    let supports_detach =
+                                        running_state.read(cx).session().read(cx).is_attached();
                                     this.map(|this| {
                                         if thread_status == ThreadStatus::Running {
                                             this.child(
@@ -730,27 +745,39 @@ impl DebugPanel {
                                                 }
                                             }),
                                     )
-                                    .child(
-                                        IconButton::new("debug-disconnect", IconName::DebugDetach)
-                                            .icon_size(IconSize::XSmall)
-                                            .on_click(window.listener_for(
-                                                &running_state,
-                                                |this, _, _, cx| {
-                                                    this.detach_client(cx);
-                                                },
-                                            ))
-                                            .tooltip({
-                                                let focus_handle = focus_handle.clone();
-                                                move |window, cx| {
-                                                    Tooltip::for_action_in(
-                                                        "Detach",
-                                                        &Detach,
-                                                        &focus_handle,
-                                                        window,
-                                                        cx,
-                                                    )
-                                                }
-                                            }),
+                                    .when(
+                                        supports_detach,
+                                        |div| {
+                                            div.child(
+                                                IconButton::new(
+                                                    "debug-disconnect",
+                                                    IconName::DebugDetach,
+                                                )
+                                                .disabled(
+                                                    thread_status != ThreadStatus::Stopped
+                                                        && thread_status != ThreadStatus::Running,
+                                                )
+                                                .icon_size(IconSize::XSmall)
+                                                .on_click(window.listener_for(
+                                                    &running_state,
+                                                    |this, _, _, cx| {
+                                                        this.detach_client(cx);
+                                                    },
+                                                ))
+                                                .tooltip({
+                                                    let focus_handle = focus_handle.clone();
+                                                    move |window, cx| {
+                                                        Tooltip::for_action_in(
+                                                            "Detach",
+                                                            &Detach,
+                                                            &focus_handle,
+                                                            window,
+                                                            cx,
+                                                        )
+                                                    }
+                                                }),
+                                            )
+                                        },
                                     )
                                 },
                             ),
