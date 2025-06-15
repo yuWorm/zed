@@ -1743,6 +1743,62 @@ impl SshRemoteConnection {
             return Ok(dst_path);
         }
 
+        // add upload local build, in dev version, can't download remote server
+        let upload_local_build_remote_server =
+            std::env::var("ZED_UPLOAD_LOCAL_BUILD_REMOTE_SERVER").ok();
+        if let Some(upload_local_build_remote_server) = upload_local_build_remote_server {
+            let upload_local_build_remote_server =
+                std::env::var("ZED_UPLOAD_LOCAL_BUILD_REMOTE_SERVER").ok();
+            let platform = self.platform().await?;
+            let remote_local_zip = format!("remote_server.{}.{}.gz", platform.os, platform.arch);
+
+            // 获取 HOME 目录，如果失败则使用默认值
+            let home_dir = std::env::var("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("~"));
+
+            // get remote_server_dir
+            let remote_server_dir: PathBuf =
+                if let Some(ref server_path) = upload_local_build_remote_server {
+                    if !server_path.is_empty() && Path::new(server_path).exists() {
+                        PathBuf::from(server_path)
+                    } else {
+                        home_dir.join(".zed_server")
+                    }
+                } else {
+                    home_dir.join(".zed_server")
+                };
+
+            // get binary gz path
+            let src_path = remote_server_dir.join(&remote_local_zip);
+
+            // 检查是否存在
+            if src_path.exists() {
+                let tmp_path = paths::remote_server_dir_relative().join(format!(
+                    "download-{}-{}",
+                    std::process::id(),
+                    src_path.file_name().unwrap().to_string_lossy()
+                ));
+
+                self.upload_local_server_binary(&src_path, &tmp_path, delegate, cx)
+                    .await?;
+                self.extract_server_binary(&dst_path, &tmp_path, delegate, cx)
+                    .await?;
+                return Ok(dst_path);
+            } else {
+                let wanted_version = cx.update(|cx| match release_channel {
+                      ReleaseChannel::Nightly => Ok(None),
+                      ReleaseChannel::Dev => {
+                          anyhow::bail!(
+                              "ZED_UPLOAD_LOCAL_BUILD_REMOTE_SERVER is set but no remote server exists at ({:?})",
+                              src_path.display()
+                          )
+                      }
+                      _ => Ok(Some(AppVersion::global(cx))),
+                  })??;
+            }
+        };
+
         let wanted_version = cx.update(|cx| match release_channel {
             ReleaseChannel::Nightly => Ok(None),
             ReleaseChannel::Dev => {
