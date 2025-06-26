@@ -3,14 +3,12 @@ use gpui::{Action, actions};
 use gpui::{Context, Window};
 use language::{CharClassifier, CharKind};
 
-use crate::motion::MotionKind;
 use crate::{Vim, motion::Motion, state::Mode};
 
-actions!(vim, [HelixNormalAfter, HelixDelete]);
+actions!(vim, [HelixNormalAfter]);
 
 pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, Vim::helix_normal_after);
-    Vim::action(editor, cx, Vim::helix_delete);
 }
 
 impl Vim {
@@ -292,27 +290,6 @@ impl Vim {
             _ => self.helix_move_and_collapse(motion, times, window, cx),
         }
     }
-
-    pub fn helix_delete(&mut self, _: &HelixDelete, window: &mut Window, cx: &mut Context<Self>) {
-        self.store_visual_marks(window, cx);
-        self.update_editor(window, cx, |vim, editor, window, cx| {
-            // Fixup selections so they have helix's semantics.
-            // Specifically:
-            //  - Make sure that each cursor acts as a 1 character wide selection
-            editor.transact(window, cx, |editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                    s.move_with(|map, selection| {
-                        if selection.is_empty() && !selection.reversed {
-                            selection.end = movement::right(map, selection.end);
-                        }
-                    });
-                });
-            });
-
-            vim.copy_selections_content(editor, MotionKind::Exclusive, window, cx);
-            editor.insert("", window, cx);
-        });
-    }
 }
 
 #[cfg(test)]
@@ -435,4 +412,37 @@ mod test {
     //         Mode::HelixNormal,
     //     );
     // }
+
+    #[gpui::test]
+    async fn test_f_and_t(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        cx.set_state(
+            indoc! {"
+            The quˇick brown
+            fox jumps over
+            the lazy dog."},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("f z");
+
+        cx.assert_state(
+            indoc! {"
+                The qu«ick brown
+                fox jumps over
+                the lazˇ»y dog."},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("2 T r");
+
+        cx.assert_state(
+            indoc! {"
+                The quick br«ˇown
+                fox jumps over
+                the laz»y dog."},
+            Mode::HelixNormal,
+        );
+    }
 }
