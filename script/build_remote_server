@@ -495,12 +495,12 @@ compile_target() {
 
     # 处理输出文件
     local mapped_arch="${ARCH_MAPPING[$arch]}"
-    local output_name="${PROJECT_NAME}.${os}.${mapped_arch}"
+    local output_name="zed-${PROJECT_NAME}-dev.${os}.${mapped_arch}"
     local output_path="$OUTPUT_DIR/$output_name"
 
     log_info "复制二进制文件..."
     cp "$binary_path" "$output_path"
-    cp "$binary_path" "${binary_path}-dev-${os}-${mapped_arch}"
+    #cp "$binary_path" "${binary_path}-dev-${os}-${mapped_arch}"
 
     # 设置执行权限
     chmod +x "$output_path"
