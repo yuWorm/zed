@@ -1716,6 +1716,45 @@ impl SshRemoteConnection {
         );
         let dst_path = paths::remote_server_dir_relative().join(binary_name);
 
+        // add upload local remote server in dev
+        let upload_local_remote_server = std::env::var("ZED_UPLOAD_LOCAL_REMOTE_SERVER").ok();
+        if let Some(upload_local_remote_server) = upload_local_remote_server {
+            let mut default_dir = "~/.zed_server".to_string();
+            let custom_dir = Path::new(&upload_local_remote_server);
+            if custom_dir.exists() && custom_dir.is_dir() {
+                default_dir = upload_local_remote_server.clone()
+            }
+
+            let remote_server_dir = PathBuf::from(&default_dir);
+            let platform = self.platform().await?;
+
+            let remote_server_path = format!(
+                "zed-remote-server-{}-{}-{}",
+                release_channel.dev_name(),
+                platform.os,
+                platform.arch
+            );
+
+            let remote_server_path = remote_server_dir.join(remote_server_path);
+
+            if !remote_server_path.exists() {
+                let wanted_version = cx.update(|cx| match release_channel {
+                    ReleaseChannel::Nightly => Ok(None),
+                    ReleaseChannel::Dev => {
+                        anyhow::bail!(
+                            "ZED_UPLOAD_LOCAL_REMOTE_SERVER is set and no remote server dir exists at ({:?})",
+                            dst_path
+                        )
+                    }
+                    _ => Ok(Some(AppVersion::global(cx))),
+                })??;
+            }
+
+            self.upload_local_server_binary(&remote_server_path, &dst_path, delegate, cx)
+                .await;
+            return Ok(dst_path);
+        }
+
         let build_remote_server = std::env::var("ZED_BUILD_REMOTE_SERVER").ok();
         #[cfg(debug_assertions)]
         if let Some(build_remote_server) = build_remote_server {
