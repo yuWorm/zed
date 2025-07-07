@@ -1729,7 +1729,7 @@ impl SshRemoteConnection {
             let platform = self.platform().await?;
 
             let remote_server_path =
-                format!("zed-remote-server-dev.{}.{}.gz", platform.os, platform.arch);
+                format!("zed-remote_server-dev.{}.{}.gz", platform.os, platform.arch);
 
             let remote_server_path = remote_server_dir.join(remote_server_path);
 
