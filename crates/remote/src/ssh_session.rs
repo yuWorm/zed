@@ -1821,9 +1821,10 @@ impl SshRemoteConnection {
                 }
             };
 
-            let platform = self.platform().await?;
-            let remote_server_path =
-                format!("zed-remote_server-dev.{}.{}.gz", platform.os, platform.arch);
+            let remote_server_path = format!(
+                "zed-remote_server-dev.{}.{}.gz",
+                self.ssh_platform.os, self.ssh_platform.arch
+            );
             let remote_server_path = server_dir.join(remote_server_path);
 
             if !remote_server_path.exists() {
@@ -1838,11 +1839,14 @@ impl SshRemoteConnection {
                     _ => Ok(Some(AppVersion::global(cx))),
                 })??;
             }
-            let tmp_path = paths::remote_server_dir_relative().join(format!(
-                "download-{}-{}",
-                std::process::id(),
-                remote_server_path.file_name().unwrap().to_string_lossy()
-            ));
+            let tmp_path = RemotePathBuf::new(
+                paths::remote_server_dir_relative().join(format!(
+                    "download-{}-{}",
+                    std::process::id(),
+                    remote_server_path.file_name().unwrap().to_string_lossy()
+                )),
+                self.ssh_path_style,
+            );
             self.upload_local_server_binary(&remote_server_path, &tmp_path, delegate, cx)
                 .await;
             self.extract_server_binary(&dst_path, &tmp_path, delegate, cx)
