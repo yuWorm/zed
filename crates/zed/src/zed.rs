@@ -19,6 +19,7 @@ use collections::VecDeque;
 use debugger_ui::debugger_panel::DebugPanel;
 use editor::ProposedChangesEditorToolbar;
 use editor::{Editor, MultiBuffer};
+use feature_flags::{FeatureFlagAppExt, PanicFeatureFlag};
 use futures::future::Either;
 use futures::{StreamExt, channel::mpsc, select_biased};
 use git_ui::git_panel::GitPanel;
@@ -48,13 +49,17 @@ use release_channel::{AppCommitSha, ReleaseChannel};
 use rope::Rope;
 use search::project_search::ProjectSearchBar;
 use settings::{
-    DEFAULT_KEYMAP_PATH, InvalidSettingsError, KeybindSource, KeymapFile, KeymapFileLoadResult,
-    Settings, SettingsStore, VIM_KEYMAP_PATH, initial_local_debug_tasks_content,
-    initial_project_settings_content, initial_tasks_content, update_settings_file,
+    BaseKeymap, DEFAULT_KEYMAP_PATH, InvalidSettingsError, KeybindSource, KeymapFile,
+    KeymapFileLoadResult, Settings, SettingsStore, VIM_KEYMAP_PATH,
+    initial_local_debug_tasks_content, initial_project_settings_content, initial_tasks_content,
+    update_settings_file,
 };
-use std::path::PathBuf;
-use std::sync::atomic::{self, AtomicBool};
-use std::{borrow::Cow, path::Path, sync::Arc};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+    sync::Arc,
+    sync::atomic::{self, AtomicBool},
+};
 use terminal_view::terminal_panel::{self, TerminalPanel};
 use theme::{ActiveTheme, ThemeSettings};
 use ui::{PopoverMenuHandle, prelude::*};
@@ -62,7 +67,7 @@ use util::markdown::MarkdownString;
 use util::{ResultExt, asset_str};
 use uuid::Uuid;
 use vim_mode_setting::VimModeSetting;
-use welcome::{BaseKeymap, DOCS_URL, MultibufferHint};
+use welcome::{DOCS_URL, MultibufferHint};
 use workspace::notifications::{NotificationId, dismiss_app_notification, show_app_notification};
 use workspace::{
     AppState, NewFile, NewWindow, OpenLog, Toast, Workspace, WorkspaceSettings,
@@ -119,11 +124,9 @@ pub fn init(cx: &mut App) {
     cx.on_action(quit);
 
     cx.on_action(|_: &RestoreBanner, cx| title_bar::restore_banner(cx));
-
-    if ReleaseChannel::global(cx) == ReleaseChannel::Dev {
-        cx.on_action(test_panic);
+    if ReleaseChannel::global(cx) == ReleaseChannel::Dev || cx.has_flag::<PanicFeatureFlag>() {
+        cx.on_action(|_: &TestPanic, _| panic!("Ran the TestPanic action"));
     }
-
     cx.on_action(|_: &OpenLog, cx| {
         with_active_or_new_workspace(cx, |workspace, window, cx| {
             open_log_file(workspace, window, cx);
@@ -984,10 +987,6 @@ fn about(
         }
     })
     .detach();
-}
-
-fn test_panic(_: &TestPanic, _: &mut App) {
-    panic!("Ran the TestPanic action")
 }
 
 fn install_cli(
@@ -3956,6 +3955,7 @@ mod tests {
             language::init(cx);
             workspace::init(app_state.clone(), cx);
             welcome::init(cx);
+            onboarding::init(cx);
             Project::init_settings(cx);
             app_state
         })
@@ -4326,6 +4326,7 @@ mod tests {
                 "jj",
                 "journal",
                 "keymap_editor",
+                "keystroke_input",
                 "language_selector",
                 "lsp_tool",
                 "markdown",
