@@ -439,6 +439,70 @@ impl SshRemoteConnection {
             self.ssh_path_style,
         );
 
+        // add upload local remote server in dev
+        let upload_local_remote_server = std::env::var("ZED_UPLOAD_LOCAL_REMOTE_SERVER").ok();
+        if let Some(upload_local_remote_server) = upload_local_remote_server {
+            // 确定服务器目录路径：优先使用自定义目录，否则使用 home/.zed_server
+            let server_dir = {
+                let custom_dir = Path::new(&upload_local_remote_server);
+                if custom_dir.exists() && custom_dir.is_dir() {
+                    custom_dir.to_path_buf()
+                } else {
+                    // 使用默认目录：home/.zed_server
+                    let home_dir = if cfg!(target_os = "windows") {
+                        std::env::var("USERPROFILE").map_err(|_| {
+                            anyhow::anyhow!("无法获取用户主目录：USERPROFILE 环境变量未设置")
+                        })?
+                    } else {
+                        std::env::var("HOME").map_err(|_| {
+                            anyhow::anyhow!("无法获取用户主目录：HOME 环境变量未设置")
+                        })?
+                    };
+
+                    let default_dir = Path::new(&home_dir).join(".zed_server");
+
+                    // 如果默认目录不存在，创建它
+                    if !default_dir.exists() {
+                        std::fs::create_dir_all(&default_dir)?;
+                    }
+
+                    default_dir
+                }
+            };
+
+            let remote_server_path = format!(
+                "zed-remote_server-dev.{}.{}.gz",
+                self.ssh_platform.os, self.ssh_platform.arch
+            );
+            let remote_server_path = server_dir.join(remote_server_path);
+
+            if !remote_server_path.exists() {
+                let _ = cx.update(|cx| match release_channel {
+                    ReleaseChannel::Nightly => Ok(None),
+                    ReleaseChannel::Dev => {
+                        anyhow::bail!(
+                            "ZED_UPLOAD_LOCAL_REMOTE_SERVER 已设置，但远程服务器目录不存在: {:?}",
+                            remote_server_path
+                        )
+                    }
+                    _ => Ok(Some(AppVersion::global(cx))),
+                })??;
+            }
+            let tmp_path = RemotePathBuf::new(
+                paths::remote_server_dir_relative().join(format!(
+                    "download-{}-{}",
+                    std::process::id(),
+                    remote_server_path.file_name().unwrap().to_string_lossy()
+                )),
+                self.ssh_path_style,
+            );
+            self.upload_local_server_binary(&remote_server_path, &tmp_path, delegate, cx)
+                .await?;
+            self.extract_server_binary(&dst_path, &tmp_path, delegate, cx)
+                .await?;
+            return Ok(dst_path);
+        }
+
         #[cfg(debug_assertions)]
         if let Some(remote_server_path) =
             super::build_remote_server_from_source(&self.ssh_platform, delegate.as_ref(), cx)
